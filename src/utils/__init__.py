@@ -1,7 +1,7 @@
 # Utils package
 from .augmentations import StrongAugmentation, create_train_transforms, create_val_transforms
 from .metrics import MetricsCalculator, ModelEvaluator
-from .training_utils import EarlyStopping, LearningRateScheduler, ModelCheckpoint
+from .training_utils import EarlyStopping, LearningRateScheduler, ModelCheckpoint, TrainingTracker
 
 __all__ = [
     'StrongAugmentation',
@@ -11,5 +11,6 @@ __all__ = [
     'ModelEvaluator',
     'EarlyStopping',
     'LearningRateScheduler',
-    'ModelCheckpoint'
+    'ModelCheckpoint',
+    'TrainingTracker'
 ]
