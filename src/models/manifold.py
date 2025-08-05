@@ -9,105 +9,162 @@ import torch.nn.functional as F
 from typing import List, Dict, Tuple, Optional, Union
 import math
 import warnings
-
+from contextlib import contextmanager
 
 class SPDMatrices:
     """
     Utility class for SPD (Symmetric Positive Definite) matrix operations
     Implements numerically stable operations on the SPD manifold
     """
-    
+
     @staticmethod
-    def symmetrize(M):
-        """
-        Symmetrizes a matrix.
-        """
-        M = M + M.transpose(-2, -1)
-        return M.mul_(0.5)
-    
+    def symmetrize(M: torch.Tensor) -> torch.Tensor:
+        # 避免 in-place 破壞計算圖，以免 Autograd 優化受限
+        return 0.5 * (M + M.transpose(-2, -1))
+
     @staticmethod
     def add_identity(M: torch.Tensor, eps: float = 1e-4) -> torch.Tensor:
-        """Add identity matrix for numerical stability"""
         I = torch.eye(M.size(-1), device=M.device, dtype=M.dtype)
         return M + eps * I
-    
+
     @staticmethod
-    def ensure_spd(M: torch.Tensor, eps: float = 1e-4) -> torch.Tensor:
-        """Ensure matrix is SPD through eigenvalue clamping"""
-        # Ensure eps is a float (handle potential string parsing issues)
-        if isinstance(eps, str):
-            eps = float(eps)
-            
-        M = SPDMatrices.symmetrize(M)
-        
-        # Eigenvalue decomposition
+    def _chol_if_possible(M: torch.Tensor, eps: float):
+        """Try Cholesky; if success, return symmetrized M+epsI (already SPD)."""
+        M_eps = SPDMatrices.add_identity(SPDMatrices.symmetrize(M), eps)
+        L, info = torch.linalg.cholesky_ex(M_eps)
+        # info==0 表示成功
+        if (info == 0).all():
+            # 既然能 Cholesky，直接回 M_eps 即可（它就是 SPD）
+            return M_eps, True
+        return M_eps, False
+
+    @staticmethod
+    def _reconstruct_from_eig(vecs: torch.Tensor, vals: torch.Tensor) -> torch.Tensor:
+        # 避免 diag_embed 的巨大中間張量：V diag(λ) V^T = (V * λ_row) @ V^T
+        # vals shape: [..., d], vecs: [..., d, d]
+        scaled = vecs * vals.unsqueeze(-2)         # [..., d, d]
+        return scaled @ vecs.transpose(-2, -1)
+
+    @staticmethod
+    def _eigh_chunked(M: torch.Tensor, eps: float, clamp_min: float,
+                      max_chunk_elems: int = 64):
+        """
+        對最後兩維是方陣的 batched 張量做分塊 eigh。
+        M shape: [..., d, d]
+        備註：max_chunk_elems 是每塊的矩陣數（不是元素數），依你的 GPU 設定調整。
+        """
+        orig_shape = M.shape
+        d = M.size(-1)
+        prefix = M.shape[:-2]
+        num = int(torch.tensor(prefix).prod().item()) if len(prefix) else 1
+        M_flat = M.reshape(num, d, d)
+
+        vals_list, vecs_list = []
+        # 逐塊處理，避免單次呼叫占滿 CUDA 記憶體
+        for start in range(0, num, max_chunk_elems):
+            end = min(start + max_chunk_elems, num)
+            Mi = M_flat[start:end]  # [chunk, d, d]
+            try:
+                ei, ev = torch.linalg.eigh(Mi)
+            except RuntimeError as e:
+                # 若不是 OOM，直接丟出
+                if "CUDA out of memory" not in str(e):
+                    raise
+                # OOM → CPU fallback
+                Mi_cpu = Mi.cpu()
+                ei_cpu, ev_cpu = torch.linalg.eigh(Mi_cpu)
+                ei = ei_cpu.to(Mi.device)
+                ev = ev_cpu.to(Mi.device)
+
+            ei = torch.clamp(ei, min=clamp_min)
+            vals_list.append(ei)
+            vecs_list.append(ev)
+
+        eigenvals = torch.cat(vals_list, dim=0).reshape(*prefix, d)
+        eigenvecs = torch.cat(vecs_list, dim=0).reshape(*prefix, d, d)
+        return eigenvals, eigenvecs
+
+    @staticmethod
+    def ensure_spd(M: torch.Tensor, eps: float = 1e-4,
+                   max_chunk_elems: int = 64) -> torch.Tensor:
+        """
+        Ensure matrix is SPD via Cholesky fast-path or eigenvalue clamping (chunked).
+        """
+        # dtype/精度保險：避免 double
+        if M.dtype == torch.float64:
+            M = M.float()
+
+        # 先試 Cholesky（快、穩、省記憶體）
+        M_eps, ok = SPDMatrices._chol_if_possible(M, eps)
+        if ok:
+            return M_eps
+
+        # 需要 eig 修補的情況：分塊處理 + 不用 diag_embed
         try:
-            eigenvals, eigenvecs = torch.linalg.eigh(M)
-            # Clamp eigenvalues to be positive
-            eigenvals = torch.clamp(eigenvals, min=eps)
-            # Reconstruct matrix
-            M_spd = eigenvecs @ torch.diag_embed(eigenvals) @ eigenvecs.transpose(-2, -1)
-            return M_spd
+            eigenvals, eigenvecs = SPDMatrices._eigh_chunked(
+                M_eps, eps=eps, clamp_min=eps, max_chunk_elems=max_chunk_elems
+            )
+            M_spd = SPDMatrices._reconstruct_from_eig(eigenvecs, eigenvals)
+            return SPDMatrices.symmetrize(M_spd)
         except RuntimeError:
-            # Fallback: add identity
-            return SPDMatrices.add_identity(M, eps)
-    
+            # 最終保險：加大 eps
+            return SPDMatrices.add_identity(M_eps, 10 * eps)
+
     @staticmethod
-    def matrix_sqrt(M: torch.Tensor, eps: float = 1e-4) -> torch.Tensor:
-        """Compute matrix square root using eigenvalue decomposition"""
-        # Ensure eps is a float (handle potential string parsing issues)
-        if isinstance(eps, str):
-            eps = float(eps)
-            
-        M = SPDMatrices.ensure_spd(M, eps)
-        
+    def matrix_sqrt(M: torch.Tensor, eps: float = 1e-4,
+                    max_chunk_elems: int = 64) -> torch.Tensor:
+        if M.dtype == torch.float64:
+            M = M.float()
+        M = SPDMatrices.ensure_spd(M, eps, max_chunk_elems=max_chunk_elems)
         try:
-            eigenvals, eigenvecs = torch.linalg.eigh(M)
-            sqrt_eigenvals = torch.sqrt(torch.clamp(eigenvals, min=eps))
-            M_sqrt = eigenvecs @ torch.diag_embed(sqrt_eigenvals) @ eigenvecs.transpose(-2, -1)
-            return M_sqrt
+            eigenvals, eigenvecs = SPDMatrices._eigh_chunked(
+                M, eps=eps, clamp_min=eps, max_chunk_elems=max_chunk_elems
+            )
+            sqrt_eigenvals = torch.sqrt(eigenvals)
+            M_sqrt = SPDMatrices._reconstruct_from_eig(eigenvecs, sqrt_eigenvals)
+            return SPDMatrices.symmetrize(M_sqrt)
         except RuntimeError:
-            # Fallback: identity
-            return torch.eye(M.size(-1), device=M.device, dtype=M.dtype).expand_as(M)
-    
+            I = torch.eye(M.size(-1), device=M.device, dtype=M.dtype)
+            return I.expand_as(M)
+
     @staticmethod
-    def matrix_inv_sqrt(M: torch.Tensor, eps: float = 1e-4) -> torch.Tensor:
-        """Compute inverse matrix square root"""
-        # Ensure eps is a float (handle potential string parsing issues)
-        if isinstance(eps, str):
-            eps = float(eps)
-            
-        M = SPDMatrices.ensure_spd(M, eps)
-        
+    def matrix_inv_sqrt(M: torch.Tensor, eps: float = 1e-4,
+                        max_chunk_elems: int = 64) -> torch.Tensor:
+        if M.dtype == torch.float64:
+            M = M.float()
+        M = SPDMatrices.ensure_spd(M, eps, max_chunk_elems=max_chunk_elems)
         try:
-            eigenvals, eigenvecs = torch.linalg.eigh(M)
-            inv_sqrt_eigenvals = 1.0 / torch.sqrt(torch.clamp(eigenvals, min=eps))
-            M_inv_sqrt = eigenvecs @ torch.diag_embed(inv_sqrt_eigenvals) @ eigenvecs.transpose(-2, -1)
-            return M_inv_sqrt
+            eigenvals, eigenvecs = SPDMatrices._eigh_chunked(
+                M, eps=eps, clamp_min=eps, max_chunk_elems=max_chunk_elems
+            )
+            inv_sqrt_eigenvals = 1.0 / torch.sqrt(eigenvals)
+            M_inv_sqrt = SPDMatrices._reconstruct_from_eig(eigenvecs, inv_sqrt_eigenvals)
+            return SPDMatrices.symmetrize(M_inv_sqrt)
         except RuntimeError:
-            return torch.eye(M.size(-1), device=M.device, dtype=M.dtype).expand_as(M)
-    
+            I = torch.eye(M.size(-1), device=M.device, dtype=M.dtype)
+            return I.expand_as(M)
+
     @staticmethod
-    def matrix_log(M: torch.Tensor, eps: float = 1e-4) -> torch.Tensor:
-        """Compute matrix logarithm"""
-        # Ensure eps is a float (handle potential string parsing issues)
-        if isinstance(eps, str):
-            eps = float(eps)
-            
-        M = SPDMatrices.ensure_spd(M, eps)
-        
+    def matrix_log(M: torch.Tensor, eps: float = 1e-4,
+                   max_chunk_elems: int = 64) -> torch.Tensor:
+        if M.dtype == torch.float64:
+            M = M.float()
+        M = SPDMatrices.ensure_spd(M, eps, max_chunk_elems=max_chunk_elems)
         try:
-            eigenvals, eigenvecs = torch.linalg.eigh(M)
-            log_eigenvals = torch.log(torch.clamp(eigenvals, min=eps))
-            M_log = eigenvecs @ torch.diag_embed(log_eigenvals) @ eigenvecs.transpose(-2, -1)
-            return M_log
+            eigenvals, eigenvecs = SPDMatrices._eigh_chunked(
+                M, eps=eps, clamp_min=eps, max_chunk_elems=max_chunk_elems
+            )
+            log_eigenvals = torch.log(eigenvals)
+            M_log = SPDMatrices._reconstruct_from_eig(eigenvecs, log_eigenvals)
+            return SPDMatrices.symmetrize(M_log)
         except RuntimeError:
             return torch.zeros_like(M)
-    
+
     @staticmethod
     def frobenius_norm(M: torch.Tensor) -> torch.Tensor:
-        """Compute Frobenius norm"""
-        return torch.norm(M.view(M.size(0), -1), p='fro', dim=1)
+        # 支援任意 batch 維
+        return torch.linalg.norm(M, ord='fro', dim=(-2, -1))
+
 
 
 class CovarianceEstimator(nn.Module):
