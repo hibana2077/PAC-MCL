@@ -284,9 +284,6 @@ class TotalLoss(nn.Module):
         pac_mcl_losses = []
         
         for b in range(batch_size):
-            if batch_size <= 1:
-                continue
-                
             # Simple approach: minimize Frobenius distance between corresponding parts
             anchor = anchor_matrices[b]  # [P, D, D]
             positive = positive_matrices[b]  # [P, D, D]
@@ -301,10 +298,19 @@ class TotalLoss(nn.Module):
         if pac_mcl_losses:
             pac_mcl_total = torch.stack(pac_mcl_losses).mean()
         else:
-            pac_mcl_total = torch.tensor(0.0, device=logits_main.device)
+            # Create a zero tensor by multiplying an existing tensor with gradients by zero
+            # This ensures the tensor is on the right device and has the proper gradient tracking
+            pac_mcl_total = (logits_main.sum() * 0.0)
         
         # Total loss
         total_loss = ce_main + self.lambda_pos_ce * ce_pos + self.gamma * pac_mcl_total
+        
+        # Ensure the total loss requires gradients
+        if not total_loss.requires_grad:
+            # This should not happen, but if it does, create a proper tensor
+            print(f"Warning: total_loss doesn't require grad. ce_main.requires_grad={ce_main.requires_grad}, "
+                  f"ce_pos.requires_grad={ce_pos.requires_grad}, pac_mcl_total.requires_grad={pac_mcl_total.requires_grad}")
+            total_loss = ce_main.clone()  # Use ce_main as fallback since it should always require grad
         
         # Prepare loss dictionary
         loss_dict = {

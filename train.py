@@ -207,8 +207,9 @@ def train_epoch(model: PAC_MCL_Model,
             images = images.to(device)
             labels = labels.to(device)
             
-            # Forward pass
-            outputs = model.forward_inference(images)
+            # Forward pass - use forward_single_view instead of forward_inference
+            # to maintain gradients
+            outputs = model.forward_single_view(images)
             logits = outputs['logits']
             
             # Compute classification loss
