@@ -34,7 +34,7 @@ def load_model_from_checkpoint(checkpoint_path: str,
     model.to(device)
     
     # Load checkpoint
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     model.load_state_dict(checkpoint['model_state_dict'])
     
     print(f"Loaded model from checkpoint: {checkpoint_path}")

@@ -292,7 +292,7 @@ class ModelCheckpoint:
         Returns:
             Checkpoint data dictionary
         """
-        checkpoint = torch.load(filepath, map_location=map_location)
+        checkpoint = torch.load(filepath, map_location=map_location, weights_only=False)
         
         # Load model state
         model.load_state_dict(checkpoint['model_state_dict'])
