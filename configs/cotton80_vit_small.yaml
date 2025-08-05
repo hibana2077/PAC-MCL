@@ -1,0 +1,73 @@
+# PAC-MCL Configuration
+
+# Model configuration
+model:
+  backbone_name: "vit_small_patch16_384.augreg_in21k_ft_in1k"  # timm model name
+  num_classes: 80  # Will be updated based on dataset
+  pretrained: true
+  freeze_backbone: false
+  
+  # Part extraction parameters
+  num_parts: 6
+  part_dim: 64
+  use_adaptive_parts: false
+  
+  # Manifold parameters
+  distance_metric: "log_euclidean"  # "log_euclidean" or "bures_wasserstein"
+  alignment_method: "bnn"  # "bnn" or "hungarian"
+  shrinkage_alpha: null  # Covariance shrinkage (null = no shrinkage)
+  eps: 1e-4  # Numerical stability parameter
+  
+  # Loss parameters
+  gamma: 0.75  # Weight for PAC-MCL loss
+  lambda_pos_ce: 1.0  # Weight for positive view classification loss
+  margin: 0.2  # Triplet margin
+
+# Data configuration
+data:
+  dataset_name: "cotton80"  # UFG dataset name
+  data_root: "./data"
+  image_size: 384
+  mean: [0.485, 0.456, 0.406]  # ImageNet normalization
+  std: [0.229, 0.224, 0.225]
+
+# Training configuration
+training:
+  epochs: 100
+  batch_size: 32
+  num_workers: 4
+  dual_view: true  # Enable dual-view training for PAC-MCL
+  
+  # Optimizer
+  optimizer: "adamw"  # "adamw" or "sgd"
+  learning_rate: 3.0e-4
+  weight_decay: 0.05
+  momentum: 0.9  # For SGD
+  
+  # Learning rate scheduler
+  scheduler:
+    type: "warmup_cosine"  # "cosine", "step", "plateau", "warmup_cosine", "none"
+    params:
+      warmup_epochs: 5
+      max_epochs: 100
+      eta_min: 1.0e-6
+  
+  # Early stopping
+  early_stopping:
+    patience: 15
+    min_delta: 1.0e-4
+  
+  # Output
+  output_dir: "./outputs/cotton80_resnet50_pac_mcl"
+
+# Experimental settings
+experiment:
+  name: "PAC_MCL_Cotton80_ResNet50"
+  description: "PAC-MCL training on Cotton80 dataset with ResNet50 backbone"
+  tags: ["pac-mcl", "cotton80", "resnet50", "manifold-learning"]
+  
+  # Curriculum learning (optional)
+  curriculum:
+    enable: true
+    switch_epoch: 60  # Switch from Log-Euclidean to Bures-Wasserstein
+    switch_metric: "bures_wasserstein"
