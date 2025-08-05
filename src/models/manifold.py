@@ -18,9 +18,11 @@ class SPDMatrices:
     """
     
     @staticmethod
-    def symmetrize(M: torch.Tensor) -> torch.Tensor:
-        """Make matrix symmetric"""
-        return 0.5 * (M + M.transpose(-2, -1))
+    def symmetrize(M):
+        """
+        Symmetrizes a matrix.
+        """
+        return M.add_(M.transpose(-2, -1)).mul_(0.5)
     
     @staticmethod
     def add_identity(M: torch.Tensor, eps: float = 1e-4) -> torch.Tensor:
