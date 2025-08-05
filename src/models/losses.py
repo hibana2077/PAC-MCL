@@ -273,7 +273,7 @@ class TotalLoss(nn.Module):
         
         for b in range(batch_size):
             # Get negatives for this sample (exclude itself)
-            negatives = [negative_matrices_list[i][b] for i in range(len(negative_matrices_list)) if i != b]
+            negatives = [negative_matrices_list[i] for i in range(len(negative_matrices_list)) if i != b]
             
             if negatives:  # Only compute if negatives are available
                 pac_loss, pac_info = self.pac_mcl_loss(
