@@ -101,12 +101,16 @@ def create_dataloaders(config: Dict[str, Any]) -> Tuple[DataLoader, DataLoader, 
     # Update num_classes in config
     config['model']['num_classes'] = len(train_dataset.classes)
     
+    # Windows-specific fix for multiprocessing
+    import platform
+    num_workers = 0 if platform.system() == 'Windows' else config['training']['num_workers']
+    
     # Create dataloaders
     train_loader = DataLoader(
         train_dataset,
         batch_size=config['training']['batch_size'],
         shuffle=True,
-        num_workers=config['training']['num_workers'],
+        num_workers=num_workers,
         pin_memory=True,
         drop_last=True
     )
@@ -115,7 +119,7 @@ def create_dataloaders(config: Dict[str, Any]) -> Tuple[DataLoader, DataLoader, 
         val_dataset,
         batch_size=config['training']['batch_size'],
         shuffle=False,
-        num_workers=config['training']['num_workers'],
+        num_workers=num_workers,
         pin_memory=True
     )
     
@@ -123,7 +127,7 @@ def create_dataloaders(config: Dict[str, Any]) -> Tuple[DataLoader, DataLoader, 
         test_dataset,
         batch_size=config['training']['batch_size'],
         shuffle=False,
-        num_workers=config['training']['num_workers'],
+        num_workers=num_workers,
         pin_memory=True
     )
     

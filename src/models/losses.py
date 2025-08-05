@@ -347,38 +347,98 @@ class SymmetricPACMCL(nn.Module):
         """
         batch_size = matrices_v1.shape[0]
         
-        # Prepare negative matrices
-        negatives_v1 = [matrices_v2[i] for i in range(batch_size)]
-        negatives_v2 = [matrices_v1[i] for i in range(batch_size)]
+        # Compute both losses in a single pass to avoid graph issues
+        device = matrices_v1.device
         
-        # Compute loss for v1 as anchor
-        loss_1, dict_1 = self.total_loss(
-            logits_v1, logits_v2, labels,
-            matrices_v1, matrices_v2, negatives_v1,
-            alignments[0] if alignments else {}
-        )
+        # Classification losses for both views
+        ce_loss = nn.CrossEntropyLoss()
+        ce_v1 = ce_loss(logits_v1, labels)
+        ce_v2 = ce_loss(logits_v2, labels)
         
-        # Compute loss for v2 as anchor  
-        loss_2, dict_2 = self.total_loss(
-            logits_v2, logits_v1, labels,
-            matrices_v2, matrices_v1, negatives_v2,
-            alignments[0] if alignments else {}  # Use same alignment
-        )
+        # PAC-MCL losses computed simultaneously
+        pac_mcl_losses = []
+        pac_mcl_infos = []
         
-        # Average the losses
-        total_loss = 0.5 * (loss_1 + loss_2)
+        # Process each sample in the batch
+        for b in range(batch_size):
+            # Get matrices for this sample
+            anchor_v1 = matrices_v1[b]  # [P, D, D]
+            anchor_v2 = matrices_v2[b]  # [P, D, D]
+            
+            # Prepare negatives (other samples in batch)
+            neg_indices = [i for i in range(batch_size) if i != b]
+            if not neg_indices:
+                continue
+                
+            negatives_for_v1 = [matrices_v2[i] for i in neg_indices]
+            negatives_for_v2 = [matrices_v1[i] for i in neg_indices]
+            
+            alignment = alignments[0] if alignments else {}
+            
+            # Compute PAC-MCL loss for v1->v2
+            if negatives_for_v1:
+                pac_loss_1, pac_info_1 = self.total_loss.pac_mcl_loss(
+                    anchor_v1, anchor_v2, negatives_for_v1, alignment
+                )
+            else:
+                pac_loss_1 = torch.tensor(0.0, device=device)
+                pac_info_1 = {'pos_distances': torch.tensor(0.0), 'neg_distances': torch.tensor(0.0)}
+            
+            # Compute PAC-MCL loss for v2->v1  
+            if negatives_for_v2:
+                pac_loss_2, pac_info_2 = self.total_loss.pac_mcl_loss(
+                    anchor_v2, anchor_v1, negatives_for_v2, alignment
+                )
+            else:
+                pac_loss_2 = torch.tensor(0.0, device=device)
+                pac_info_2 = {'pos_distances': torch.tensor(0.0), 'neg_distances': torch.tensor(0.0)}
+            
+            # Average the two PAC-MCL losses
+            avg_pac_loss = 0.5 * (pac_loss_1 + pac_loss_2)
+            pac_mcl_losses.append(avg_pac_loss)
+            
+            # Average the info
+            avg_info = {
+                'pos_distances': 0.5 * (pac_info_1['pos_distances'] + pac_info_2['pos_distances']),
+                'neg_distances': 0.5 * (pac_info_1['neg_distances'] + pac_info_2['neg_distances']),
+                'num_active_triplets': 0.5 * (pac_info_1.get('num_active_triplets', torch.tensor(0.0)) + 
+                                             pac_info_2.get('num_active_triplets', torch.tensor(0.0)))
+            }
+            pac_mcl_infos.append(avg_info)
         
-        # Combine loss dictionaries
-        combined_dict = {}
-        for key in dict_1.keys():
-            if key != 'total':
-                combined_dict[f'{key}_v1'] = dict_1[key]
-                combined_dict[f'{key}_v2'] = dict_2[key]
-                combined_dict[key] = 0.5 * (dict_1[key] + dict_2[key])
+        # Average PAC-MCL loss across batch
+        if pac_mcl_losses:
+            pac_mcl_total = torch.stack(pac_mcl_losses).mean()
+        else:
+            pac_mcl_total = torch.tensor(0.0, device=device)
         
-        combined_dict['total'] = total_loss
+        # Combine all losses
+        total_loss = (ce_v1 + self.total_loss.lambda_pos_ce * ce_v2 + 
+                     self.total_loss.gamma * pac_mcl_total)
         
-        return total_loss, combined_dict
+        # Prepare loss dictionary
+        loss_dict = {
+            'ce_main': ce_v1,
+            'ce_pos': ce_v2, 
+            'pac_mcl': pac_mcl_total,
+            'total': total_loss
+        }
+        
+        # Add PAC-MCL info if available
+        if pac_mcl_infos:
+            avg_pos_dist = torch.stack([info['pos_distances'].mean() if hasattr(info['pos_distances'], 'mean') 
+                                      else info['pos_distances'] for info in pac_mcl_infos]).mean()
+            avg_neg_dist = torch.stack([info['neg_distances'].mean() if hasattr(info['neg_distances'], 'mean')
+                                      else info['neg_distances'] for info in pac_mcl_infos]).mean()
+            avg_active_triplets = torch.stack([info['num_active_triplets'] for info in pac_mcl_infos]).mean()
+            
+            loss_dict.update({
+                'avg_pos_distance': avg_pos_dist,
+                'avg_neg_distance': avg_neg_dist,
+                'avg_active_triplets': avg_active_triplets
+            })
+        
+        return total_loss, loss_dict
 
 
 if __name__ == "__main__":
