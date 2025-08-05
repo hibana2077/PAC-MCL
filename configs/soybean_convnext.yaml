@@ -16,7 +16,7 @@ model:
   distance_metric: "log_euclidean"
   alignment_method: "bnn"
   shrinkage_alpha: null
-  eps: 1e-4
+  eps: 0.1e-4
   
   # Loss parameters
   gamma: 0.5
@@ -40,7 +40,7 @@ training:
   
   # Optimizer
   optimizer: "adamw"
-  learning_rate: 2e-4
+  learning_rate: 0.2e-4
   weight_decay: 0.05
   
   # Learning rate scheduler
@@ -49,12 +49,12 @@ training:
     params:
       warmup_epochs: 10
       max_epochs: 150
-      eta_min: 1e-6
+      eta_min: 0.1e-6
   
   # Early stopping
   early_stopping:
     patience: 20
-    min_delta: 1e-4
+    min_delta: 0.1e-4
   
   # Output
   output_dir: "./outputs/soybean_convnext_pac_mcl"

@@ -16,7 +16,7 @@ model:
   distance_metric: "log_euclidean"
   alignment_method: "bnn"
   shrinkage_alpha: null
-  eps: 1e-4
+  eps: 0.1e-4
   
   # Loss parameters (PAC-MCL disabled)
   gamma: 0.0  # Disable PAC-MCL loss
@@ -40,7 +40,7 @@ training:
   
   # Optimizer
   optimizer: "adamw"
-  learning_rate: 1e-3
+  learning_rate: 0.1e-3
   weight_decay: 0.01
   
   # Learning rate scheduler
@@ -48,13 +48,13 @@ training:
     type: "cosine"
     params:
       T_max: 100
-      eta_min: 1e-6
-  
+      eta_min: 0.1e-6
+
   # Early stopping
   early_stopping:
     patience: 15
-    min_delta: 1e-4
-  
+    min_delta: 0.1e-4
+
   # Output
   output_dir: "./outputs/cotton80_resnet50_baseline"
 
