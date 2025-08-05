@@ -1,0 +1,71 @@
+# PAC-MCL Configuration for testing ViT fix
+
+# Model configuration
+model:
+  backbone_name: "vit_small_patch16_384.augreg_in21k_ft_in1k"  # timm model name
+  num_classes: 80  # Will be updated based on dataset
+  pretrained: true
+  freeze_backbone: false
+  
+  # Part extraction parameters
+  num_parts: 6
+  part_dim: 64
+  use_adaptive_parts: false
+  
+  # Manifold parameters
+  distance_metric: "log_euclidean"  # "log_euclidean" or "bures_wasserstein"
+  alignment_method: "bnn"  # "bnn" or "hungarian"
+  shrinkage_alpha: null  # Covariance shrinkage (null = no shrinkage)
+  eps: 1e-4  # Numerical stability parameter
+  
+  # Loss parameters
+  gamma: 0.75  # Weight for PAC-MCL loss
+  lambda_pos_ce: 1.0  # Weight for positive view classification loss
+  margin: 0.2  # Triplet margin
+
+# Data configuration
+data:
+  dataset_name: "cotton80"  # UFG dataset name
+  data_root: "./data"
+  image_size: 384
+  mean: [0.485, 0.456, 0.406]  # ImageNet normalization
+  std: [0.229, 0.224, 0.225]
+
+# Training configuration
+training:
+  epochs: 1  # Just 1 epoch for testing
+  batch_size: 4  # Small batch size for testing
+  num_workers: 2
+  dual_view: true  # Enable dual-view training for PAC-MCL
+  output_dir: "./outputs/test_vit_fix"  # Output directory for results
+  
+  # Optimizer
+  optimizer: "adamw"  # "adamw" or "sgd"
+  learning_rate: 3.0e-4
+  weight_decay: 0.05
+  momentum: 0.9  # For SGD
+  
+  # Learning rate scheduler
+  scheduler:
+    type: "none"  # No scheduler to avoid division by zero with 1 epoch
+      
+  # Early stopping
+  early_stopping:
+    patience: 5
+    metric: "accuracy"
+    mode: "max"
+    min_delta: 1e-6
+
+# Logging and checkpointing
+logging:
+  log_dir: "./outputs"
+  experiment_name: "test_vit_fix"
+  log_interval: 10  # Log every N steps
+  save_interval: 1  # Save every N epochs
+  
+# Validation
+validation:
+  val_interval: 1  # Validate every N epochs
+  patience: 5  # Early stopping patience
+  metric: "accuracy"  # Metric to monitor for early stopping
+  mode: "max"  # "max" or "min"

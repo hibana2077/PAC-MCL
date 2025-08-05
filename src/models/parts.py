@@ -74,6 +74,9 @@ class PartExtractor(nn.Module):
         self.part_dim = part_dim
         self.use_attention = use_attention
         
+        # Channel adaptation layer (will be created dynamically if needed)
+        self.channel_adapter = None
+        
         # Spatial attention for part discovery
         if use_attention:
             self.attention = SpatialAttention(in_channels, num_parts)
@@ -95,7 +98,7 @@ class PartExtractor(nn.Module):
         Extract parts from feature maps
         
         Args:
-            x: Feature tensor [B, C, H, W]
+            x: Feature tensor [B, C, H, W] for CNN or [B, seq_len, embed_dim] for ViT
             
         Returns:
             Dict containing:
@@ -103,7 +106,45 @@ class PartExtractor(nn.Module):
                 - 'attention_maps': Attention maps [B, P, H, W] (if using attention)
                 - 'spatial_features': Reduced spatial features [B, part_dim, H, W]
         """
-        B, C, H, W = x.shape
+        # Handle both CNN (4D) and ViT (3D) inputs
+        if x.dim() == 3:
+            # ViT input: [B, seq_len, embed_dim]
+            B, seq_len, embed_dim = x.shape
+            # Convert to spatial format for compatibility
+            # Assume square spatial arrangement (patch grid)
+            H = W = int(seq_len ** 0.5)
+            if H * W != seq_len:
+                # Handle non-square arrangements or add CLS token
+                # For ViT with CLS token, remove it
+                if seq_len == H * W + 1:
+                    x = x[:, 1:, :]  # Remove CLS token
+                    seq_len -= 1
+                    H = W = int(seq_len ** 0.5)
+                else:
+                    # Fallback: pad to nearest square
+                    H = W = int(seq_len ** 0.5) + 1
+                    pad_len = H * W - seq_len
+                    if pad_len > 0:
+                        padding = torch.zeros(B, pad_len, embed_dim, device=x.device, dtype=x.dtype)
+                        x = torch.cat([x, padding], dim=1)
+            
+            # Reshape to spatial format: [B, embed_dim, H, W]
+            x = x.transpose(1, 2).reshape(B, embed_dim, H, W)
+            C = embed_dim
+        elif x.dim() == 4:
+            # CNN input: [B, C, H, W]
+            B, C, H, W = x.shape
+        else:
+            raise ValueError(f"Expected 3D or 4D tensor, got {x.dim()}D tensor with shape {x.shape}")
+        
+        # Handle channel mismatch with dynamic adapter
+        if C != self.in_channels:
+            if self.channel_adapter is None:
+                # Create channel adapter on first use
+                self.channel_adapter = nn.Conv2d(C, self.in_channels, 1, bias=False).to(x.device)
+                nn.init.kaiming_normal_(self.channel_adapter.weight)
+            x = self.channel_adapter(x)
+            C = self.in_channels
         
         # Reduce dimensions first
         spatial_features = self.dim_reduction(x)  # [B, part_dim, H, W]

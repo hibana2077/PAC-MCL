@@ -65,7 +65,19 @@ class PAC_MCL_Model(nn.Module):
         
         # Get feature dimension from backbone
         feature_info = self.backbone.get_feature_info()
-        self.backbone_feature_dim = feature_info['feature_shape'][0]  # Channel dimension
+        feature_shape = feature_info['feature_shape']
+        
+        # Handle different backbone types
+        if 'vit' in backbone_name.lower() or 'deit' in backbone_name.lower():
+            # Vision Transformer: features are [seq_len, embed_dim]
+            if len(feature_shape) == 2:
+                self.backbone_feature_dim = feature_shape[1]  # embed_dim
+            else:
+                # Fallback
+                self.backbone_feature_dim = feature_shape[0]
+        else:
+            # CNN: features are [C, H, W]
+            self.backbone_feature_dim = feature_shape[0]  # Channel dimension
         
         # Part extraction
         if use_adaptive_parts:

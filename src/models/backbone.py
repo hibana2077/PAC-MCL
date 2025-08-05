@@ -107,9 +107,19 @@ class TimmBackbone(nn.Module):
             else:
                 last_features = features
             
-            # Global average pooling to get feature dimension
-            pooled = torch.nn.functional.adaptive_avg_pool2d(last_features, (1, 1))
-            return pooled.shape[1]
+            # Handle different tensor shapes
+            if 'vit' in self.model_name.lower() or 'deit' in self.model_name.lower():
+                # Vision Transformer - features are [B, seq_len, embed_dim]
+                if last_features.dim() == 3:
+                    return last_features.shape[-1]  # embed_dim
+                else:
+                    # Fallback for unexpected shape
+                    pooled = torch.nn.functional.adaptive_avg_pool2d(last_features, (1, 1))
+                    return pooled.shape[1]
+            else:
+                # CNN models - features are [B, C, H, W]
+                pooled = torch.nn.functional.adaptive_avg_pool2d(last_features, (1, 1))
+                return pooled.shape[1]
     
     def _register_hooks(self):
         """Register forward hooks for feature extraction"""
@@ -149,7 +159,7 @@ class TimmBackbone(nn.Module):
             
         Returns:
             Dict containing:
-                - 'features': Feature map [B, D, H', W']
+                - 'features': Feature map [B, D, H', W'] for CNN or [B, seq_len, embed_dim] for ViT
                 - 'logits': Classification logits [B, num_classes]
                 - 'multi_features': Dict of multi-level features (if available)
         """
@@ -159,9 +169,21 @@ class TimmBackbone(nn.Module):
         # Forward pass
         features = self.model(x)
         
-        # Global average pooling for classification
-        pooled_features = torch.nn.functional.adaptive_avg_pool2d(features, (1, 1))
-        pooled_features = pooled_features.flatten(1)
+        # Handle different model types for pooling
+        if 'vit' in self.model_name.lower() or 'deit' in self.model_name.lower():
+            # Vision Transformer models - features are [B, seq_len, embed_dim]
+            if features.dim() == 3:
+                # Use CLS token for classification (first token)
+                pooled_features = features[:, 0, :]  # [B, embed_dim]
+            else:
+                # Fallback to adaptive pooling if 4D
+                pooled_features = torch.nn.functional.adaptive_avg_pool2d(features, (1, 1))
+                pooled_features = pooled_features.flatten(1)
+        else:
+            # CNN models - features are [B, C, H, W]
+            pooled_features = torch.nn.functional.adaptive_avg_pool2d(features, (1, 1))
+            pooled_features = pooled_features.flatten(1)
+        
         logits = self.classifier(pooled_features)
         
         # Prepare output
