@@ -47,19 +47,29 @@ class SPDMatrices:
 
     @staticmethod
     def _eigh_chunked(M: torch.Tensor, eps: float, clamp_min: float,
-                      max_chunk_elems: int = 64):
+                    max_chunk_elems: int = 64):
         """
         對最後兩維是方陣的 batched 張量做分塊 eigh。
         M shape: [..., d, d]
-        備註：max_chunk_elems 是每塊的矩陣數（不是元素數），依你的 GPU 設定調整。
+        備註:max_chunk_elems 是每塊的矩陣數（不是元素數）。
         """
-        orig_shape = M.shape
+        # 基本檢查
+        assert M.dim() >= 2 and M.size(-1) == M.size(-2), "M 的最後兩維必須是方陣"
         d = M.size(-1)
         prefix = M.shape[:-2]
-        num = int(torch.tensor(prefix).prod().item()) if len(prefix) else 1
-        M_flat = M.reshape(num, d, d)
 
-        vals_list, vecs_list = []
+        # 攤平成 [num, d, d]
+        if len(prefix) == 0:
+            num = 1
+            M_flat = M.view(1, d, d)
+        else:
+            num = 1
+            for s in prefix:
+                num *= int(s)
+            M_flat = M.reshape(num, d, d)
+
+        vals_list, vecs_list = [], []  # <-- 修正這行
+
         # 逐塊處理，避免單次呼叫占滿 CUDA 記憶體
         for start in range(0, num, max_chunk_elems):
             end = min(start + max_chunk_elems, num)
@@ -67,10 +77,9 @@ class SPDMatrices:
             try:
                 ei, ev = torch.linalg.eigh(Mi)
             except RuntimeError as e:
-                # 若不是 OOM，直接丟出
                 if "CUDA out of memory" not in str(e):
                     raise
-                # OOM → CPU fallback
+                # OOM → CPU fallback（僅該塊），再搬回原裝置
                 Mi_cpu = Mi.cpu()
                 ei_cpu, ev_cpu = torch.linalg.eigh(Mi_cpu)
                 ei = ei_cpu.to(Mi.device)
