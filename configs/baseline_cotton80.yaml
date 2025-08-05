@@ -16,7 +16,7 @@ model:
   distance_metric: "log_euclidean"
   alignment_method: "bnn"
   shrinkage_alpha: null
-  eps: 0.1e-4
+  eps: 1e-5
   
   # Loss parameters (PAC-MCL disabled)
   gamma: 0.0  # Disable PAC-MCL loss

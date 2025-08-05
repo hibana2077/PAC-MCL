@@ -43,6 +43,12 @@ def load_config(config_path: str) -> Dict[str, Any]:
     """Load configuration from YAML file"""
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
+    
+    # Ensure numeric types are properly converted
+    if 'model' in config and 'eps' in config['model']:
+        if isinstance(config['model']['eps'], str):
+            config['model']['eps'] = float(config['model']['eps'])
+    
     return config
 
 

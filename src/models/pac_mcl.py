@@ -43,6 +43,10 @@ class PAC_MCL_Model(nn.Module):
                  margin: float = 0.2):
         super().__init__()
         
+        # Ensure eps is a float (handle potential string parsing issues)
+        if isinstance(eps, str):
+            eps = float(eps)
+        
         # Store parameters
         self.backbone_name = backbone_name
         self.num_classes = num_classes

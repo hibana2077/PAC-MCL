@@ -31,6 +31,10 @@ class SPDMatrices:
     @staticmethod
     def ensure_spd(M: torch.Tensor, eps: float = 1e-4) -> torch.Tensor:
         """Ensure matrix is SPD through eigenvalue clamping"""
+        # Ensure eps is a float (handle potential string parsing issues)
+        if isinstance(eps, str):
+            eps = float(eps)
+            
         M = SPDMatrices.symmetrize(M)
         
         # Eigenvalue decomposition
@@ -48,6 +52,10 @@ class SPDMatrices:
     @staticmethod
     def matrix_sqrt(M: torch.Tensor, eps: float = 1e-4) -> torch.Tensor:
         """Compute matrix square root using eigenvalue decomposition"""
+        # Ensure eps is a float (handle potential string parsing issues)
+        if isinstance(eps, str):
+            eps = float(eps)
+            
         M = SPDMatrices.ensure_spd(M, eps)
         
         try:
@@ -62,6 +70,10 @@ class SPDMatrices:
     @staticmethod
     def matrix_inv_sqrt(M: torch.Tensor, eps: float = 1e-4) -> torch.Tensor:
         """Compute inverse matrix square root"""
+        # Ensure eps is a float (handle potential string parsing issues)
+        if isinstance(eps, str):
+            eps = float(eps)
+            
         M = SPDMatrices.ensure_spd(M, eps)
         
         try:
@@ -75,6 +87,10 @@ class SPDMatrices:
     @staticmethod
     def matrix_log(M: torch.Tensor, eps: float = 1e-4) -> torch.Tensor:
         """Compute matrix logarithm"""
+        # Ensure eps is a float (handle potential string parsing issues)
+        if isinstance(eps, str):
+            eps = float(eps)
+            
         M = SPDMatrices.ensure_spd(M, eps)
         
         try:
@@ -101,6 +117,9 @@ class CovarianceEstimator(nn.Module):
                  eps: float = 1e-4,
                  center_data: bool = True):
         super().__init__()
+        # Ensure eps is a float (handle potential string parsing issues)
+        if isinstance(eps, str):
+            eps = float(eps)
         self.shrinkage_alpha = shrinkage_alpha
         self.eps = eps
         self.center_data = center_data
