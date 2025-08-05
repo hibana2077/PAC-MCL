@@ -182,6 +182,9 @@ def train_epoch(model: PAC_MCL_Model,
     
     for batch_idx, batch_data in enumerate(train_loader):
         
+        # Zero gradients before forward pass
+        optimizer.zero_grad()
+        
         if dual_view:
             # Dual view training
             (images_v1, images_v2), labels = batch_data
@@ -208,7 +211,6 @@ def train_epoch(model: PAC_MCL_Model,
             loss = nn.CrossEntropyLoss()(logits, labels)
         
         # Backward pass
-        optimizer.zero_grad()
         loss.backward()
         
         # Gradient clipping
