@@ -40,7 +40,7 @@ training:
   
   # Optimizer
   optimizer: "adamw"  # "adamw" or "sgd"
-  learning_rate: 0.3e-4
+  learning_rate: 3.0e-4
   weight_decay: 0.05
   momentum: 0.9  # For SGD
   
@@ -50,12 +50,12 @@ training:
     params:
       warmup_epochs: 5
       max_epochs: 100
-      eta_min: 0.1e-6
+      eta_min: 1.0e-6
   
   # Early stopping
   early_stopping:
     patience: 15
-    min_delta: 0.1e-4
+    min_delta: 1.0e-4
   
   # Output
   output_dir: "./outputs/cotton80_resnet50_pac_mcl"

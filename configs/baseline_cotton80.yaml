@@ -40,7 +40,7 @@ training:
   
   # Optimizer
   optimizer: "adamw"
-  learning_rate: 0.1e-3
+  learning_rate: 1.0e-3
   weight_decay: 0.01
   
   # Learning rate scheduler
@@ -48,12 +48,12 @@ training:
     type: "cosine"
     params:
       T_max: 100
-      eta_min: 0.1e-6
+      eta_min: 1.0e-6
 
   # Early stopping
   early_stopping:
     patience: 15
-    min_delta: 0.1e-4
+    min_delta: 1.0e-4
 
   # Output
   output_dir: "./outputs/cotton80_resnet50_baseline"
