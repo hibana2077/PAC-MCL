@@ -15,6 +15,6 @@ nvidia-smi >> gpu-info.txt
 
 cd ..
 
-source /scratch/rp06/sl5952/EGO-Moment-CLE-ViT/.venv/bin/activate
+source /scratch/rp06/sl5952/PAC-MCL/.venv/bin/activate
 python3 test_implementation.py >> out_test.txt
 
