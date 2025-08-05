@@ -6,6 +6,7 @@ Provides a unified interface to various CNN architectures from timm
 import torch
 import torch.nn as nn
 import timm
+import timm.data
 from typing import Dict, Any, List, Optional
 
 
@@ -63,6 +64,21 @@ class TimmBackbone(nn.Module):
         if freeze_backbone:
             self.freeze_backbone()
     
+    def _get_device(self) -> torch.device:
+        """Get the device of the model"""
+        return next(self.model.parameters()).device
+    
+    def _get_input_size(self) -> tuple:
+        """Get the proper input size for this model"""
+        try:
+            # Get data config from pretrained configuration
+            data_cfg = timm.data.resolve_data_config(self.model.pretrained_cfg)
+            input_size = data_cfg['input_size']
+            return input_size
+        except (AttributeError, KeyError):
+            # Fallback to default size if config is not available
+            return (3, 224, 224)
+    
     def _get_default_feature_levels(self) -> List[str]:
         """Get default feature extraction levels based on model type"""
         if 'resnet' in self.model_name.lower():
@@ -79,8 +95,10 @@ class TimmBackbone(nn.Module):
     
     def _get_feature_dim(self) -> int:
         """Get the feature dimension of the backbone"""
+        # Get proper input size for this model
+        input_size = self._get_input_size()
         # Create dummy input to infer dimensions
-        dummy_input = torch.randn(1, 3, 224, 224)
+        dummy_input = torch.randn(1, *input_size, device=self._get_device())
         with torch.no_grad():
             features = self.model(dummy_input)
             if isinstance(features, dict):
@@ -161,13 +179,15 @@ class TimmBackbone(nn.Module):
     
     def get_feature_info(self) -> Dict[str, Any]:
         """Get information about the extracted features"""
-        dummy_input = torch.randn(1, 3, 224, 224)
+        # Get proper input size for this model
+        input_size = self._get_input_size()
+        dummy_input = torch.randn(1, *input_size, device=self._get_device())
         with torch.no_grad():
             output = self.forward(dummy_input)
         
         info = {
             'model_name': self.model_name,
-            'input_size': (3, 224, 224),
+            'input_size': input_size,
             'feature_shape': output['features'].shape[1:],
             'pooled_feature_dim': output['pooled_features'].shape[1],
             'num_classes': self.num_classes
@@ -243,7 +263,8 @@ if __name__ == "__main__":
             )
             
             # Test forward pass
-            dummy_input = torch.randn(2, 3, 224, 224)
+            input_size = backbone._get_input_size()
+            dummy_input = torch.randn(2, *input_size, device=backbone._get_device())
             output = backbone(dummy_input)
             
             print(f"Input shape: {dummy_input.shape}")
